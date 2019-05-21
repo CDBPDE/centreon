@@ -853,7 +853,8 @@ class CentreonLDAP
             // Checking if the user isn't already linked to this contactgroup
             $resCgExist = $this->db->prepare(
                 "SELECT COUNT(*) AS `exist` FROM contactgroup_contact_relation " .
-                "WHERE contact_contact_id = :contactId AND contactgroup_cg_id = :ldapCg"
+                "WHERE contact_contact_id = :contactId " .
+                "AND contactgroup_cg_id = :ldapCg"
             );
             $resCgExist->bindValue(':contactId', $contactId, \PDO::PARAM_INT);
             $resCgExist->bindValue(':ldapCg', $ldapCg, \PDO::PARAM_INT);
@@ -873,12 +874,46 @@ class CentreonLDAP
             );
             $resCg->bindValue(':ldapDftCg', $ldapCg, \PDO::PARAM_INT);
             $resCg->bindValue(':contactId', $contactId, \PDO::PARAM_INT);
-                "(contactgroup_cg_id, contact_contact_id) VALUES (:ldapDftCg, :contactId)"
-            );
-            $resCg->bindValue(':ldapDftCg', $ldapCg, \PDO::PARAM_INT);
-            $resCg->bindValue(':contactId', $contactId, \PDO::PARAM_INT);
             $resCg->execute();
             unset($resCg);
+        } catch (\PDOException $e) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * If the option is checked in the LDAP parameter form, we don't sync the LDAP user's modification when login
+     *
+     * @internal Method needed for the user's auto import from the LDAP
+     * @since 18.10
+     *
+     * @param integer $arId : the Id of the current LDAP
+     * @return boolean
+     */
+    public function isLoginSyncEnabled (int $arId = null): bool
+    {
+        try {
+            // checking if the synchronization is disabled
+            $resSync = $this->db->prepare(
+                "SELECT ari_value AS `syncEnabled` FROM auth_ressource_info " .
+                "WHERE ari_name LIKE 'ldap_auto_sync' AND ar_id = :arId"
+            );
+            $resSync->bindValue(':arId', $arId, \PDO::PARAM_INT);
+            $resSync->execute();
+            /*
+            while ($result = $resLdap->fetch()) {
+                $ldapCg = $result['syncEnabled'];
+            }
+            unset($resLdap);
+*/
+            $result = $resSync->fetch();
+            unset($resSync);
+
+            if (!$result['syncEnabled']) {
+                // the sync is disabled
+                return false;
+            }
         } catch (\PDOException $e) {
             return false;
         }
@@ -1040,10 +1075,10 @@ class CentreonLdapAdmin
                          WHERE `ari_name` = '" . $this->db->escape($key) . "' 
                          AND ar_id = " . $this->db->escape($arId);
             } else {
-                $query = "INSERT INTO `auth_ressource_info`
-                         (`ar_id`, `ari_name`, `ari_value`) 
-                         VALUES (" . $this->db->escape($arId) . ", '" . $this->db->escape($key) . "', '" .
-                         $this->db->escape($value, false) . "')";
+                $query = "INSERT INTO `auth_ressource_info` " .
+                    "(`ar_id`, `ari_name`, `ari_value`) " .
+                    "VALUES (" . $this->db->escape($arId) . ", '" . $this->db->escape($key) . "', '" .
+                    $this->db->escape($value, false) . "')";
             }
             $this->db->query($query);
         }
